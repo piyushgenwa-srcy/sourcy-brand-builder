@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&display=swap");
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sourcy-orange: #CC5140;
+  --sourcy-orange-hover: #B8442F;
+  --sourcy-orange-press: #A23B29;
+  --sourcy-olive: #6A7B4F;
+  --sourcy-cream: #F7F5F1;
+  --sourcy-surface: #F0ECE6;
+  --sourcy-burgundy: #212223;
+  --sourcy-dark-brown: #404142;
+  --sourcy-brown: #3b2b20;
+  --sourcy-light-beige: #dcb6a1;
+  --sourcy-tan: #B28E69;
+  --sourcy-ink-deep: #281911;
+  --sourcy-line: #E4DDD4;
+  --sourcy-olive-tint: #E9ECDF;
+
+  --background: var(--sourcy-cream);
+  --foreground: var(--sourcy-burgundy);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-cream: #F7F5F1;
+  --color-surface: #F0ECE6;
+  --color-burgundy: #212223;
+  --color-dark-brown: #404142;
+  --color-brown: #3b2b20;
+  --color-terracotta: #CC5140;
+  --color-terracotta-hover: #B8442F;
+  --color-olive: #6A7B4F;
+  --color-olive-tint: #E9ECDF;
+  --color-tan: #B28E69;
+  --color-ink-deep: #281911;
+  --color-light-beige: #dcb6a1;
+  --color-line: #E4DDD4;
+
+  --font-display: "Fraunces", "Times New Roman", Georgia, serif;
+  --font-body: "Inter Tight", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-warm-sm: 0 1px 2px rgba(64, 43, 32, 0.06);
+  --shadow-warm-md: 0 8px 24px rgba(64, 43, 32, 0.08);
+  --shadow-warm-lg: 0 24px 56px rgba(64, 43, 32, 0.12);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--sourcy-cream);
+  color: var(--sourcy-burgundy);
+  font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+}
+
+::selection {
+  background: var(--sourcy-light-beige);
+  color: var(--sourcy-burgundy);
+}
+
+@keyframes animate-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-in {
+  animation: animate-in 250ms cubic-bezier(0.2, 0, 0, 1);
 }
