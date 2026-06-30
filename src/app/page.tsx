@@ -1,14 +1,25 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { ArrowLeft, ArrowRight, Wand2 } from "lucide-react";
 import { ProductPicker } from "@/components/product-picker";
 import { BrandInput } from "@/components/brand-input";
 import { ImageUpload } from "@/components/image-upload";
-import { GeneratedResults, type GeneratedImage } from "@/components/generated-results";
+import {
+  GeneratedResults,
+  type GeneratedProduct,
+  type ViewType,
+} from "@/components/generated-results";
 import { UnlockModal, type LeadData } from "@/components/lead-capture";
 import { Stepper } from "@/components/stepper";
+import { PRODUCTS } from "@/lib/products";
 import Image from "next/image";
+
+const VIEWS: Array<{ viewType: ViewType; label: string }> = [
+  { viewType: "logo", label: "Logo" },
+  { viewType: "front", label: "Front" },
+  { viewType: "back", label: "Back" },
+];
 
 export default function Home() {
   const [step, setStep] = useState(0);
@@ -18,128 +29,158 @@ export default function Home() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [customImage, setCustomImage] = useState<File | null>(null);
   const [customImagePreview, setCustomImagePreview] = useState<string | null>(null);
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
+  const [generatedProducts, setGeneratedProducts] = useState<GeneratedProduct[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
 
   const canProceedStep0 = selectedProducts.length > 0;
-  const canProceedStep1 = brandName.trim().length > 0;
+  const canProceedStep1 = brandName.trim().length > 0 || logoFile !== null;
+
+  const sourcingUrl = useMemo(() => {
+    const product = PRODUCTS.find((p) => p.id === selectedProducts[0]);
+    const productName = product?.name ?? "product";
+    const query = brandName.trim()
+      ? `Custom ${brandName} ${productName}`
+      : `Custom branded ${productName}`;
+    return `https://www.sourcy.ai/onboard?q=${encodeURIComponent(query)}`;
+  }, [selectedProducts, brandName]);
+
+  const fetchView = useCallback(
+    async (productId: string, viewType: ViewType): Promise<string> => {
+      const formData = new FormData();
+      formData.append("productId", productId);
+      formData.append("brandName", brandName);
+      formData.append("viewType", viewType);
+      if (logoFile) formData.append("logo", logoFile);
+      if (customImage) formData.append("customImage", customImage);
+
+      const res = await fetch("/api/generate", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data.imageUrl as string;
+    },
+    [brandName, logoFile, customImage]
+  );
 
   const generateImages = useCallback(async () => {
     setIsGenerating(true);
     setStep(2);
 
-    const initial: GeneratedImage[] = selectedProducts.map((id) => ({
+    const initial: GeneratedProduct[] = selectedProducts.map((id) => ({
       productId: id,
-      imageUrl: "",
-      loading: true,
+      views: VIEWS.map(({ viewType, label }) => ({
+        viewType,
+        label,
+        imageUrl: "",
+        loading: true,
+      })),
     }));
-    setGeneratedImages(initial);
+    setGeneratedProducts(initial);
 
     for (const productId of selectedProducts) {
-      try {
-        const formData = new FormData();
-        formData.append("productId", productId);
-        formData.append("brandName", brandName);
-        if (logoFile) formData.append("logo", logoFile);
-        if (customImage) formData.append("customImage", customImage);
-
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-
-        if (data.error) {
-          setGeneratedImages((prev) =>
-            prev.map((img) =>
-              img.productId === productId
-                ? { ...img, loading: false, error: data.error }
-                : img
+      for (const { viewType, label } of VIEWS) {
+        try {
+          const imageUrl = await fetchView(productId, viewType);
+          setGeneratedProducts((prev) =>
+            prev.map((p) =>
+              p.productId === productId
+                ? {
+                    ...p,
+                    views: p.views.map((v) =>
+                      v.viewType === viewType
+                        ? { viewType, label, imageUrl, loading: false }
+                        : v
+                    ),
+                  }
+                : p
             )
           );
-        } else {
-          setGeneratedImages((prev) =>
-            prev.map((img) =>
-              img.productId === productId
-                ? { ...img, loading: false, imageUrl: data.imageUrl }
-                : img
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Network error — please try again";
+          setGeneratedProducts((prev) =>
+            prev.map((p) =>
+              p.productId === productId
+                ? {
+                    ...p,
+                    views: p.views.map((v) =>
+                      v.viewType === viewType
+                        ? { viewType, label, imageUrl: "", loading: false, error: message }
+                        : v
+                    ),
+                  }
+                : p
             )
           );
         }
-      } catch {
-        setGeneratedImages((prev) =>
-          prev.map((img) =>
-            img.productId === productId
-              ? { ...img, loading: false, error: "Network error — please try again" }
-              : img
-          )
-        );
       }
     }
 
     setIsGenerating(false);
-  }, [selectedProducts, brandName, logoFile, customImage]);
+  }, [selectedProducts, fetchView]);
 
   const regenerate = useCallback(
-    async (productId: string) => {
-      setGeneratedImages((prev) =>
-        prev.map((img) =>
-          img.productId === productId
-            ? { ...img, loading: true, error: undefined }
-            : img
+    async (productId: string, viewType: ViewType) => {
+      const view = VIEWS.find((v) => v.viewType === viewType)!;
+      setGeneratedProducts((prev) =>
+        prev.map((p) =>
+          p.productId === productId
+            ? {
+                ...p,
+                views: p.views.map((v) =>
+                  v.viewType === viewType
+                    ? { ...v, loading: true, error: undefined }
+                    : v
+                ),
+              }
+            : p
         )
       );
 
       try {
-        const formData = new FormData();
-        formData.append("productId", productId);
-        formData.append("brandName", brandName);
-        if (logoFile) formData.append("logo", logoFile);
-        if (customImage) formData.append("customImage", customImage);
-
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-
-        if (data.error) {
-          setGeneratedImages((prev) =>
-            prev.map((img) =>
-              img.productId === productId
-                ? { ...img, loading: false, error: data.error }
-                : img
-            )
-          );
-        } else {
-          setGeneratedImages((prev) =>
-            prev.map((img) =>
-              img.productId === productId
-                ? { ...img, loading: false, imageUrl: data.imageUrl }
-                : img
-            )
-          );
-        }
-      } catch {
-        setGeneratedImages((prev) =>
-          prev.map((img) =>
-            img.productId === productId
-              ? { ...img, loading: false, error: "Network error — please try again" }
-              : img
+        const imageUrl = await fetchView(productId, viewType);
+        setGeneratedProducts((prev) =>
+          prev.map((p) =>
+            p.productId === productId
+              ? {
+                  ...p,
+                  views: p.views.map((v) =>
+                    v.viewType === viewType
+                      ? { viewType, label: view.label, imageUrl, loading: false }
+                      : v
+                  ),
+                }
+              : p
+          )
+        );
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Network error — please try again";
+        setGeneratedProducts((prev) =>
+          prev.map((p) =>
+            p.productId === productId
+              ? {
+                  ...p,
+                  views: p.views.map((v) =>
+                    v.viewType === viewType
+                      ? { ...v, loading: false, error: message }
+                      : v
+                  ),
+                }
+              : p
           )
         );
       }
     },
-    [brandName, logoFile, customImage]
+    [fetchView]
   );
 
   const downloadImage = useCallback(
-    (imageUrl: string, productId: string) => {
+    (imageUrl: string, productId: string, viewType: ViewType) => {
       const link = document.createElement("a");
       link.href = imageUrl;
-      link.download = `${brandName.toLowerCase().replace(/\s+/g, "-")}-${productId}.png`;
+      link.download = `${brandName.toLowerCase().replace(/\s+/g, "-")}-${productId}-${viewType}.png`;
       link.click();
     },
     [brandName]
@@ -230,7 +271,7 @@ export default function Home() {
                 Tell us about your brand
               </h2>
               <p className="text-sm text-dark-brown/60">
-                Your brand name and logo will be applied to each product.
+                Add your brand name, logo, or both — whatever you have is enough.
               </p>
             </div>
 
@@ -280,12 +321,13 @@ export default function Home() {
         {step === 2 && (
           <div className="space-y-10">
             <GeneratedResults
-              images={generatedImages}
+              products={generatedProducts}
               brandName={brandName}
               unlocked={unlocked}
               onRegenerate={regenerate}
               onDownload={downloadImage}
               onRequestUnlock={() => setShowUnlockModal(true)}
+              sourcingUrl={sourcingUrl}
             />
 
             <UnlockModal
@@ -311,7 +353,7 @@ export default function Home() {
                   setLogoPreview(null);
                   setCustomImage(null);
                   setCustomImagePreview(null);
-                  setGeneratedImages([]);
+                  setGeneratedProducts([]);
                   setUnlocked(false);
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-line text-dark-brown text-sm hover:bg-surface transition-all"

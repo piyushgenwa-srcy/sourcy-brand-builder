@@ -3,12 +3,29 @@ import { PRODUCTS } from "@/lib/products";
 
 export const maxDuration = 60;
 
+type ViewType = "logo" | "front" | "back";
+
+const IMAGEN_VIEW_SUFFIX: Record<ViewType, string> = {
+  logo: "Extreme close-up macro shot zoomed in on the logo and branding area, showing crisp detail of the print or embroidery texture, shallow depth of field, clean background.",
+  front:
+    "Front-facing full product view, centered composition, clean white/marble background.",
+  back: "Back view of the product showing the complete back side, centered composition, clean white/marble background.",
+};
+
+const GEMINI_VIEW_INSTRUCTION: Record<ViewType, string> = {
+  logo: "Generate an extreme close-up macro shot focused entirely on the logo/branding area of the product, showing crisp detail of the print or embroidery texture, shallow depth of field.",
+  front:
+    "Generate a clean front-facing view of the full product, centered composition, professional product photography.",
+  back: "Generate a clean back view of the full product showing the complete back side, centered composition, professional product photography.",
+};
+
 export async function POST(request: Request) {
   const formData = await request.formData();
   const productId = formData.get("productId") as string;
   const brandName = formData.get("brandName") as string;
   const logoFile = formData.get("logo") as File | null;
   const customImage = formData.get("customImage") as File | null;
+  const viewType = (formData.get("viewType") as ViewType) || "front";
 
   const product = PRODUCTS.find((p) => p.id === productId);
   if (!product) {
@@ -33,10 +50,11 @@ export async function POST(request: Request) {
         product,
         brandName,
         logoFile,
-        customImage
+        customImage,
+        viewType
       );
     } else {
-      return await generateWithImagen(ai, product, brandName);
+      return await generateWithImagen(ai, product, brandName, viewType);
     }
   } catch (error: unknown) {
     const message =
@@ -49,9 +67,16 @@ export async function POST(request: Request) {
 async function generateWithImagen(
   ai: GoogleGenAI,
   product: (typeof PRODUCTS)[number],
-  brandName: string
+  brandName: string,
+  viewType: ViewType
 ) {
-  const prompt = `Professional product photography of ${product.prompt} with the brand name "${brandName}" prominently printed/embroidered on the product. The brand text should be clearly readable, naturally placed where branding would go. Premium catalog quality, warm natural lighting, clean white/marble background, high-end commercial photography style.`;
+  const brandingInstruction = brandName
+    ? `with the brand name "${brandName}" prominently printed/embroidered on the product. The brand text should be clearly readable, naturally placed where branding would go.`
+    : `as a clean blank product ready for branding.`;
+
+  const viewSuffix = IMAGEN_VIEW_SUFFIX[viewType];
+
+  const prompt = `Professional product photography of ${product.prompt} ${brandingInstruction} ${viewSuffix} Premium catalog quality, warm natural lighting, high-end commercial photography style.`;
 
   const response = await ai.models.generateImages({
     model: "imagen-4.0-generate-001",
@@ -81,19 +106,23 @@ async function generateWithGeminiImage(
   product: (typeof PRODUCTS)[number],
   brandName: string,
   logoFile: File | null,
-  customImage: File | null
+  customImage: File | null,
+  viewType: ViewType
 ) {
   const parts: Array<
     | { text: string }
     | { inlineData: { mimeType: string; data: string } }
   > = [];
 
+  const viewInstruction = GEMINI_VIEW_INSTRUCTION[viewType];
+
   if (customImage) {
     const imageBytes = await customImage.arrayBuffer();
     const base64 = Buffer.from(imageBytes).toString("base64");
 
+    const brandDesc = brandName ? `the brand "${brandName}"` : "the provided brand";
     parts.push({
-      text: `You are a professional product mockup designer. Take this product image and add the brand "${brandName}" logo/branding onto it naturally. The logo should be placed where it would naturally appear on this product - centered on the chest for shirts/hoodies, front panel for caps, side for bottles, cover for notebooks, etc. Make it look like a real branded product photo, production-ready quality. Keep the style photorealistic and premium. Generate the edited image.`,
+      text: `You are a professional product mockup designer. Take this product image and add ${brandDesc} logo/branding onto it naturally. The logo should be placed where it would naturally appear on this product - centered on the chest for shirts/hoodies, front panel for caps, side for bottles, cover for notebooks, etc. Make it look like a real branded product photo, production-ready quality. Keep the style photorealistic and premium. ${viewInstruction}`,
     });
 
     parts.push({
@@ -111,8 +140,9 @@ async function generateWithGeminiImage(
       });
     }
   } else {
+    const brandLine = brandName ? ` The brand name is "${brandName}".` : "";
     parts.push({
-      text: `Generate a photorealistic product mockup image of ${product.prompt} with the brand logo prominently featured on the product. The logo should be naturally placed where branding would go - centered chest for shirts/hoodies, front panel for caps, side for bottles, cover for notebooks, front for totes. Make this look like a real product photo from a premium brand catalog. Warm natural lighting, clean composition, production-ready quality. The brand name is "${brandName}". Generate the image.`,
+      text: `Generate a photorealistic product mockup image of ${product.prompt} with the brand logo prominently featured on the product. The logo should be naturally placed where branding would go - centered chest for shirts/hoodies, front panel for caps, side for bottles, cover for notebooks, front for totes. Make this look like a real product photo from a premium brand catalog. Warm natural lighting, clean composition, production-ready quality.${brandLine} ${viewInstruction}`,
     });
 
     if (logoFile) {
