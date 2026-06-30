@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { ArrowLeft, ArrowRight, Wand2 } from "lucide-react";
 import { ProductPicker } from "@/components/product-picker";
 import { BrandInput } from "@/components/brand-input";
@@ -21,6 +21,15 @@ const VIEWS: Array<{ viewType: ViewType; label: string }> = [
   { viewType: "back", label: "Back" },
 ];
 
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const [header, data] = dataUrl.split(",");
+  const mimeType = header.match(/:(.*?);/)?.[1] ?? "image/png";
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], filename, { type: mimeType });
+}
+
 export default function Home() {
   const [step, setStep] = useState(0);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
@@ -33,6 +42,10 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
+
+  // Ref so regenerate always sees the latest state without being recreated on every update
+  const generatedProductsRef = useRef(generatedProducts);
+  generatedProductsRef.current = generatedProducts;
 
   const canProceedStep0 = selectedProducts.length > 0;
   const canProceedStep1 = brandName.trim().length > 0 || logoFile !== null;
@@ -47,13 +60,18 @@ export default function Home() {
   }, [selectedProducts, brandName]);
 
   const fetchView = useCallback(
-    async (productId: string, viewType: ViewType): Promise<string> => {
+    async (
+      productId: string,
+      viewType: ViewType,
+      referenceImage?: File | null
+    ): Promise<string> => {
       const formData = new FormData();
       formData.append("productId", productId);
       formData.append("brandName", brandName);
       formData.append("viewType", viewType);
       if (logoFile) formData.append("logo", logoFile);
       if (customImage) formData.append("customImage", customImage);
+      if (referenceImage) formData.append("referenceImage", referenceImage);
 
       const res = await fetch("/api/generate", { method: "POST", body: formData });
       const data = await res.json();
@@ -63,117 +81,106 @@ export default function Home() {
     [brandName, logoFile, customImage]
   );
 
+  const setView = useCallback(
+    (
+      productId: string,
+      viewType: ViewType,
+      patch: Partial<GeneratedProduct["views"][number]>
+    ) => {
+      setGeneratedProducts((prev) =>
+        prev.map((p) =>
+          p.productId === productId
+            ? { ...p, views: p.views.map((v) => (v.viewType === viewType ? { ...v, ...patch } : v)) }
+            : p
+        )
+      );
+    },
+    []
+  );
+
   const generateImages = useCallback(async () => {
     setIsGenerating(true);
     setStep(2);
 
-    const initial: GeneratedProduct[] = selectedProducts.map((id) => ({
-      productId: id,
-      views: VIEWS.map(({ viewType, label }) => ({
-        viewType,
-        label,
-        imageUrl: "",
-        loading: true,
-      })),
-    }));
-    setGeneratedProducts(initial);
+    setGeneratedProducts(
+      selectedProducts.map((id) => ({
+        productId: id,
+        views: VIEWS.map(({ viewType, label }) => ({
+          viewType,
+          label,
+          imageUrl: "",
+          loading: true,
+        })),
+      }))
+    );
 
     for (const productId of selectedProducts) {
-      for (const { viewType, label } of VIEWS) {
+      // Phase 1: generate front first — sets the visual baseline for the other two views
+      let frontImageUrl: string | null = null;
+      try {
+        frontImageUrl = await fetchView(productId, "front");
+        setView(productId, "front", { loading: false, imageUrl: frontImageUrl });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Network error — please try again";
+        setView(productId, "front", { loading: false, error: message });
+      }
+
+      // Phase 2: generate logo + back in parallel, passing the front as a reference
+      // so the AI reproduces the same product/logo/style in both derived views.
+      let referenceFile: File | null = null;
+      if (frontImageUrl) {
         try {
-          const imageUrl = await fetchView(productId, viewType);
-          setGeneratedProducts((prev) =>
-            prev.map((p) =>
-              p.productId === productId
-                ? {
-                    ...p,
-                    views: p.views.map((v) =>
-                      v.viewType === viewType
-                        ? { viewType, label, imageUrl, loading: false }
-                        : v
-                    ),
-                  }
-                : p
-            )
-          );
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "Network error — please try again";
-          setGeneratedProducts((prev) =>
-            prev.map((p) =>
-              p.productId === productId
-                ? {
-                    ...p,
-                    views: p.views.map((v) =>
-                      v.viewType === viewType
-                        ? { viewType, label, imageUrl: "", loading: false, error: message }
-                        : v
-                    ),
-                  }
-                : p
-            )
-          );
+          referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
+        } catch {
+          // reference unavailable — generate independently
         }
       }
+
+      await Promise.all(
+        (["logo", "back"] as ViewType[]).map(async (viewType) => {
+          const label = VIEWS.find((v) => v.viewType === viewType)!.label;
+          try {
+            const imageUrl = await fetchView(productId, viewType, referenceFile);
+            setView(productId, viewType, { loading: false, imageUrl });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Network error — please try again";
+            setView(productId, viewType, { loading: false, error: message, label });
+          }
+        })
+      );
     }
 
     setIsGenerating(false);
-  }, [selectedProducts, fetchView]);
+  }, [selectedProducts, fetchView, setView]);
 
   const regenerate = useCallback(
     async (productId: string, viewType: ViewType) => {
-      const view = VIEWS.find((v) => v.viewType === viewType)!;
-      setGeneratedProducts((prev) =>
-        prev.map((p) =>
-          p.productId === productId
-            ? {
-                ...p,
-                views: p.views.map((v) =>
-                  v.viewType === viewType
-                    ? { ...v, loading: true, error: undefined }
-                    : v
-                ),
-              }
-            : p
-        )
-      );
+      setView(productId, viewType, { loading: true, error: undefined });
+
+      // For logo/back, pass the current front image as reference for consistency
+      let referenceFile: File | null = null;
+      if (viewType !== "front") {
+        const frontView = generatedProductsRef.current
+          .find((p) => p.productId === productId)
+          ?.views.find((v) => v.viewType === "front");
+        if (frontView?.imageUrl && !frontView.error) {
+          try {
+            referenceFile = dataUrlToFile(frontView.imageUrl, "reference.png");
+          } catch {
+            // reference unavailable
+          }
+        }
+      }
 
       try {
-        const imageUrl = await fetchView(productId, viewType);
-        setGeneratedProducts((prev) =>
-          prev.map((p) =>
-            p.productId === productId
-              ? {
-                  ...p,
-                  views: p.views.map((v) =>
-                    v.viewType === viewType
-                      ? { viewType, label: view.label, imageUrl, loading: false }
-                      : v
-                  ),
-                }
-              : p
-          )
-        );
+        const imageUrl = await fetchView(productId, viewType, referenceFile);
+        setView(productId, viewType, { loading: false, imageUrl, error: undefined });
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Network error — please try again";
-        setGeneratedProducts((prev) =>
-          prev.map((p) =>
-            p.productId === productId
-              ? {
-                  ...p,
-                  views: p.views.map((v) =>
-                    v.viewType === viewType
-                      ? { ...v, loading: false, error: message }
-                      : v
-                  ),
-                }
-              : p
-          )
-        );
+        const message = err instanceof Error ? err.message : "Network error — please try again";
+        setView(productId, viewType, { loading: false, error: message });
       }
     },
-    [fetchView]
+    [fetchView, setView]
   );
 
   const downloadImage = useCallback(
