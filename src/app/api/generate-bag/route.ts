@@ -1,5 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { BAG_DESIGNS, bagImagePath } from "@/lib/pickleball-products";
+import { normalizeImageToPng } from "@/lib/normalize-image";
+import { cleanGeminiError } from "@/lib/gemini-error";
 
 export const maxDuration = 60;
 
@@ -62,8 +64,7 @@ export async function POST(request: Request) {
     const base = await fetchBaseImage(request, designId, colorId, "front");
     return await generateBrandedFront(ai, design, base, brandName, logoFile);
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "Generation failed";
+    const message = cleanGeminiError(error);
     console.error("Generation error:", message);
     return Response.json({ error: message }, { status: 500 });
   }
@@ -107,8 +108,7 @@ async function generateBrandedFront(
   > = [];
 
   if (logoFile) {
-    const logoBytes = await logoFile.arrayBuffer();
-    const logoBase64 = Buffer.from(logoBytes).toString("base64");
+    const logo = await normalizeImageToPng(logoFile);
     const brandDesc = brandName ? `the brand "${brandName}"` : "the provided brand";
 
     parts.push({
@@ -116,7 +116,7 @@ async function generateBrandedFront(
     });
     parts.push({ inlineData: { mimeType: "image/png", data: baseImage.toString("base64") } });
     parts.push({ text: "Here is the brand logo to place on the bag:" });
-    parts.push({ inlineData: { mimeType: logoFile.type, data: logoBase64 } });
+    parts.push({ inlineData: logo });
   } else {
     const brandLine = brandName
       ? `Add the brand name "${brandName}" onto the bag naturally at ${design.logoPlacement}, small and subtly embroidered/printed, clearly readable.`
