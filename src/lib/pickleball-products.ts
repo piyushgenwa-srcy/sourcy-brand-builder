@@ -6,6 +6,15 @@ export type BagColor = {
   descriptor: string;
 };
 
+/** Public path to a pre-generated, unbranded base shot for a design/colorway. */
+export function bagImagePath(
+  designId: string,
+  colorId: string,
+  view: "front" | "back"
+): string {
+  return `/pickleball/${designId}--${colorId}--${view}.png`;
+}
+
 export type BagDesign = {
   id: string;
   name: string;

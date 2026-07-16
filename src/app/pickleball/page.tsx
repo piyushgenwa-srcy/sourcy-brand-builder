@@ -9,9 +9,8 @@ import {
   type ImageView,
   type ViewType,
 } from "@/components/pickleball/bag-generated-results";
-import { UnlockModal, type LeadData } from "@/components/lead-capture";
 import { Stepper } from "@/components/stepper";
-import { BAG_DESIGNS } from "@/lib/pickleball-products";
+import { BAG_DESIGNS, bagImagePath } from "@/lib/pickleball-products";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -44,9 +43,6 @@ export default function PickleballBuilder() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [views, setViews] = useState<ImageView[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
 
   // Ref so regenerate always sees the latest state without being recreated on every update
   const viewsRef = useRef(views);
@@ -104,7 +100,7 @@ export default function PickleballBuilder() {
   );
 
   const generateImages = useCallback(async () => {
-    setIsGenerating(true);
+    if (!design || !color) return;
     setStep(2);
 
     setViews(
@@ -112,11 +108,17 @@ export default function PickleballBuilder() {
         viewType,
         label,
         imageUrl: "",
-        loading: true,
+        loading: viewType !== "back",
       }))
     );
 
-    // Phase 1: generate front first — sets the visual baseline for the other two views
+    // The back view is never branded — serve the pre-generated static asset instantly.
+    setView("back", {
+      loading: false,
+      imageUrl: bagImagePath(design.id, color.id, "back"),
+    });
+
+    // Front composites the logo/brand name onto the pre-generated base shot.
     let frontImageUrl: string | null = null;
     try {
       frontImageUrl = await fetchView("front");
@@ -126,40 +128,33 @@ export default function PickleballBuilder() {
       setView("front", { loading: false, error: message });
     }
 
-    // Phase 2: generate logo + back in parallel, passing the front as a reference
-    // so the AI reproduces the same bag/color/logo in both derived views.
-    let referenceFile: File | null = null;
+    // Logo close-up derives from the branded front for visual consistency.
     if (frontImageUrl) {
       try {
-        referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
-      } catch {
-        // reference unavailable — generate independently
+        const referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
+        const logoImageUrl = await fetchView("logo", referenceFile);
+        setView("logo", { loading: false, imageUrl: logoImageUrl });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Network error — please try again";
+        setView("logo", { loading: false, error: message });
       }
+    } else {
+      setView("logo", { loading: false, error: "Front view failed — retry it first" });
     }
-
-    await Promise.all(
-      (["logo", "back"] as ViewType[]).map(async (viewType) => {
-        const label = VIEWS.find((v) => v.viewType === viewType)!.label;
-        try {
-          const imageUrl = await fetchView(viewType, referenceFile);
-          setView(viewType, { loading: false, imageUrl });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Network error — please try again";
-          setView(viewType, { loading: false, error: message, label });
-        }
-      })
-    );
-
-    setIsGenerating(false);
-  }, [fetchView, setView]);
+  }, [design, color, fetchView, setView]);
 
   const regenerate = useCallback(
     async (viewType: ViewType) => {
+      if (!design || !color) return;
+
+      // The back view is static — nothing to regenerate against.
+      if (viewType === "back") return;
+
       setView(viewType, { loading: true, error: undefined });
 
-      // For logo/back, pass the current front image as reference for consistency
+      // Logo derives from the current front image as a reference for consistency
       let referenceFile: File | null = null;
-      if (viewType !== "front") {
+      if (viewType === "logo") {
         const frontView = viewsRef.current.find((v) => v.viewType === "front");
         if (frontView?.imageUrl && !frontView.error) {
           try {
@@ -178,7 +173,7 @@ export default function PickleballBuilder() {
         setView(viewType, { loading: false, error: message });
       }
     },
-    [fetchView, setView]
+    [design, color, fetchView, setView]
   );
 
   const downloadImage = useCallback(
@@ -189,15 +184,6 @@ export default function PickleballBuilder() {
       link.click();
     },
     [brandName, design]
-  );
-
-  const handleUnlock = useCallback(
-    (data: LeadData) => {
-      console.log("Lead captured:", { ...data, brandName, designId: design?.id, colorId: color?.id });
-      setUnlocked(true);
-      setShowUnlockModal(false);
-    },
-    [brandName, design, color]
   );
 
   return (
@@ -324,17 +310,9 @@ export default function PickleballBuilder() {
               colorName={color.name}
               views={views}
               brandName={brandName}
-              unlocked={unlocked}
               onRegenerate={regenerate}
               onDownload={downloadImage}
-              onRequestUnlock={() => setShowUnlockModal(true)}
               sourcingUrl={sourcingUrl}
-            />
-
-            <UnlockModal
-              open={showUnlockModal}
-              onClose={() => setShowUnlockModal(false)}
-              onSubmit={handleUnlock}
             />
 
             <div className="flex items-center justify-between pt-4 border-t border-line">
@@ -354,7 +332,6 @@ export default function PickleballBuilder() {
                   setLogoFile(null);
                   setLogoPreview(null);
                   setViews([]);
-                  setUnlocked(false);
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-line text-dark-brown text-sm hover:bg-surface transition-all"
               >

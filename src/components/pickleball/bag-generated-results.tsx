@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, RefreshCw, Loader2, Eye, Lock, ExternalLink } from "lucide-react";
+import { Download, RefreshCw, Loader2, ExternalLink } from "lucide-react";
 
 export type ViewType = "logo" | "front" | "back";
 
@@ -17,20 +17,16 @@ export function BagGeneratedResults({
   colorName,
   views,
   brandName,
-  unlocked,
   onRegenerate,
   onDownload,
-  onRequestUnlock,
   sourcingUrl,
 }: {
   designName: string;
   colorName: string;
   views: ImageView[];
   brandName: string;
-  unlocked: boolean;
   onRegenerate: (viewType: ViewType) => void;
   onDownload: (imageUrl: string, viewType: ViewType) => void;
-  onRequestUnlock: () => void;
   sourcingUrl: string;
 }) {
   return (
@@ -43,17 +39,12 @@ export function BagGeneratedResults({
           {brandName ? `${brandName} ${designName}` : designName}
         </h2>
         <p className="text-sm text-dark-brown/50 mt-1">{colorName}</p>
-        {!unlocked && (
-          <p className="text-sm text-dark-brown/50 mt-2">
-            Your mockups are ready — unlock them to view in full quality.
-          </p>
-        )}
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         {views.map((view) => {
-          const showBlur =
-            !unlocked && !view.loading && !view.error && view.imageUrl;
+          // The back view is a static pre-generated asset — nothing to regenerate.
+          const canRegenerate = view.viewType !== "back";
 
           return (
             <div
@@ -82,47 +73,29 @@ export function BagGeneratedResults({
                     </button>
                   </div>
                 ) : (
-                  <>
-                    <img
-                      src={view.imageUrl}
-                      alt={`${brandName} ${designName} ${view.label}`}
-                      className={`w-full h-full object-cover transition-all duration-500 ${
-                        showBlur
-                          ? "blur-xl scale-105 select-none pointer-events-none"
-                          : "blur-0 scale-100"
-                      }`}
-                      draggable={false}
-                    />
-                    {showBlur && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-burgundy/10 backdrop-blur-sm">
-                        <div className="w-10 h-10 rounded-full bg-white/90 shadow-warm-md flex items-center justify-center mb-2">
-                          <Lock className="w-4 h-4 text-terracotta" />
-                        </div>
-                        <button
-                          onClick={onRequestUnlock}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-terracotta text-cream font-medium text-xs hover:bg-terracotta-hover active:scale-[0.98] transition-all shadow-warm-md"
-                        >
-                          <Eye className="w-3 h-3" />
-                          View
-                        </button>
-                      </div>
-                    )}
-                  </>
+                  <img
+                    src={view.imageUrl}
+                    alt={`${brandName} ${designName} ${view.label}`}
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
                 )}
               </div>
               <div className="px-2.5 py-2 flex items-center justify-between">
                 <p className="text-[10px] font-mono uppercase tracking-[0.1em] text-dark-brown/50">
                   {view.label}
                 </p>
-                {unlocked && !view.loading && !view.error && view.imageUrl && (
+                {!view.loading && !view.error && view.imageUrl && (
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => onRegenerate(view.viewType)}
-                      className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
-                      title="Regenerate"
-                    >
-                      <RefreshCw className="w-2.5 h-2.5 text-dark-brown" />
-                    </button>
+                    {canRegenerate && (
+                      <button
+                        onClick={() => onRegenerate(view.viewType)}
+                        className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
+                        title="Regenerate"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5 text-dark-brown" />
+                      </button>
+                    )}
                     <button
                       onClick={() => onDownload(view.imageUrl, view.viewType)}
                       className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
