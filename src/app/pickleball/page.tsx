@@ -1,19 +1,25 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Wand2 } from "lucide-react";
-import { ProductPicker } from "@/components/product-picker";
+import { DesignPicker } from "@/components/pickleball/design-picker";
 import { BrandInput } from "@/components/brand-input";
-import { ImageUpload } from "@/components/image-upload";
 import {
-  GeneratedResults,
-  type GeneratedProduct,
+  BagGeneratedResults,
+  type ImageView,
   type ViewType,
-} from "@/components/generated-results";
+} from "@/components/pickleball/bag-generated-results";
 import { UnlockModal, type LeadData } from "@/components/lead-capture";
 import { Stepper } from "@/components/stepper";
-import { PRODUCTS } from "@/lib/products";
+import { BAG_DESIGNS } from "@/lib/pickleball-products";
 import Image from "next/image";
+import Link from "next/link";
+
+const STEPS = [
+  { label: "Design & Color", mono: "01" },
+  { label: "Brand", mono: "02" },
+  { label: "Preview", mono: "03" },
+];
 
 const VIEWS: Array<{ viewType: ViewType; label: string }> = [
   { viewType: "logo", label: "Logo" },
@@ -30,69 +36,68 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
   return new File([bytes], filename, { type: mimeType });
 }
 
-export default function Home() {
+export default function PickleballBuilder() {
   const [step, setStep] = useState(0);
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [selectedDesignId, setSelectedDesignId] = useState<string | null>(null);
+  const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
   const [brandName, setBrandName] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [customImage, setCustomImage] = useState<File | null>(null);
-  const [customImagePreview, setCustomImagePreview] = useState<string | null>(null);
-  const [generatedProducts, setGeneratedProducts] = useState<GeneratedProduct[]>([]);
+  const [views, setViews] = useState<ImageView[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
 
   // Ref so regenerate always sees the latest state without being recreated on every update
-  const generatedProductsRef = useRef(generatedProducts);
-  generatedProductsRef.current = generatedProducts;
+  const viewsRef = useRef(views);
+  useEffect(() => {
+    viewsRef.current = views;
+  }, [views]);
 
-  const canProceedStep0 = selectedProducts.length > 0;
+  const design = useMemo(
+    () => BAG_DESIGNS.find((d) => d.id === selectedDesignId) ?? null,
+    [selectedDesignId]
+  );
+  const color = useMemo(
+    () => design?.colors.find((c) => c.id === selectedColorId) ?? null,
+    [design, selectedColorId]
+  );
+
+  const canProceedStep0 = !!design && !!color;
   const canProceedStep1 = brandName.trim().length > 0 || logoFile !== null;
 
   const sourcingUrl = useMemo(() => {
-    const product = PRODUCTS.find((p) => p.id === selectedProducts[0]);
-    const productName = product?.name ?? "product";
+    const designName = design?.name ?? "pickleball bag";
+    const colorName = color ? ` (${color.name})` : "";
     const query = brandName.trim()
-      ? `Custom ${brandName} ${productName}`
-      : `Custom branded ${productName}`;
+      ? `Custom ${brandName} ${designName}${colorName}`
+      : `Custom branded ${designName}${colorName}`;
     return `https://www.sourcy.ai/onboard?q=${encodeURIComponent(query)}`;
-  }, [selectedProducts, brandName]);
+  }, [design, color, brandName]);
 
   const fetchView = useCallback(
-    async (
-      productId: string,
-      viewType: ViewType,
-      referenceImage?: File | null
-    ): Promise<string> => {
+    async (viewType: ViewType, referenceImage?: File | null): Promise<string> => {
+      if (!design || !color) throw new Error("No design selected");
       const formData = new FormData();
-      formData.append("productId", productId);
+      formData.append("designId", design.id);
+      formData.append("colorId", color.id);
       formData.append("brandName", brandName);
       formData.append("viewType", viewType);
       if (logoFile) formData.append("logo", logoFile);
-      if (customImage) formData.append("customImage", customImage);
       if (referenceImage) formData.append("referenceImage", referenceImage);
 
-      const res = await fetch("/api/generate", { method: "POST", body: formData });
+      const res = await fetch("/api/generate-bag", { method: "POST", body: formData });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       return data.imageUrl as string;
     },
-    [brandName, logoFile, customImage]
+    [design, color, brandName, logoFile]
   );
 
   const setView = useCallback(
-    (
-      productId: string,
-      viewType: ViewType,
-      patch: Partial<GeneratedProduct["views"][number]>
-    ) => {
-      setGeneratedProducts((prev) =>
-        prev.map((p) =>
-          p.productId === productId
-            ? { ...p, views: p.views.map((v) => (v.viewType === viewType ? { ...v, ...patch } : v)) }
-            : p
-        )
+    (viewType: ViewType, patch: Partial<ImageView>) => {
+      setViews((prev) =>
+        prev.map((v) => (v.viewType === viewType ? { ...v, ...patch } : v))
       );
     },
     []
@@ -102,67 +107,60 @@ export default function Home() {
     setIsGenerating(true);
     setStep(2);
 
-    setGeneratedProducts(
-      selectedProducts.map((id) => ({
-        productId: id,
-        views: VIEWS.map(({ viewType, label }) => ({
-          viewType,
-          label,
-          imageUrl: "",
-          loading: true,
-        })),
+    setViews(
+      VIEWS.map(({ viewType, label }) => ({
+        viewType,
+        label,
+        imageUrl: "",
+        loading: true,
       }))
     );
 
-    for (const productId of selectedProducts) {
-      // Phase 1: generate front first — sets the visual baseline for the other two views
-      let frontImageUrl: string | null = null;
-      try {
-        frontImageUrl = await fetchView(productId, "front");
-        setView(productId, "front", { loading: false, imageUrl: frontImageUrl });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Network error — please try again";
-        setView(productId, "front", { loading: false, error: message });
-      }
-
-      // Phase 2: generate logo + back in parallel, passing the front as a reference
-      // so the AI reproduces the same product/logo/style in both derived views.
-      let referenceFile: File | null = null;
-      if (frontImageUrl) {
-        try {
-          referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
-        } catch {
-          // reference unavailable — generate independently
-        }
-      }
-
-      await Promise.all(
-        (["logo", "back"] as ViewType[]).map(async (viewType) => {
-          const label = VIEWS.find((v) => v.viewType === viewType)!.label;
-          try {
-            const imageUrl = await fetchView(productId, viewType, referenceFile);
-            setView(productId, viewType, { loading: false, imageUrl });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : "Network error — please try again";
-            setView(productId, viewType, { loading: false, error: message, label });
-          }
-        })
-      );
+    // Phase 1: generate front first — sets the visual baseline for the other two views
+    let frontImageUrl: string | null = null;
+    try {
+      frontImageUrl = await fetchView("front");
+      setView("front", { loading: false, imageUrl: frontImageUrl });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Network error — please try again";
+      setView("front", { loading: false, error: message });
     }
 
+    // Phase 2: generate logo + back in parallel, passing the front as a reference
+    // so the AI reproduces the same bag/color/logo in both derived views.
+    let referenceFile: File | null = null;
+    if (frontImageUrl) {
+      try {
+        referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
+      } catch {
+        // reference unavailable — generate independently
+      }
+    }
+
+    await Promise.all(
+      (["logo", "back"] as ViewType[]).map(async (viewType) => {
+        const label = VIEWS.find((v) => v.viewType === viewType)!.label;
+        try {
+          const imageUrl = await fetchView(viewType, referenceFile);
+          setView(viewType, { loading: false, imageUrl });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Network error — please try again";
+          setView(viewType, { loading: false, error: message, label });
+        }
+      })
+    );
+
     setIsGenerating(false);
-  }, [selectedProducts, fetchView, setView]);
+  }, [fetchView, setView]);
 
   const regenerate = useCallback(
-    async (productId: string, viewType: ViewType) => {
-      setView(productId, viewType, { loading: true, error: undefined });
+    async (viewType: ViewType) => {
+      setView(viewType, { loading: true, error: undefined });
 
       // For logo/back, pass the current front image as reference for consistency
       let referenceFile: File | null = null;
       if (viewType !== "front") {
-        const frontView = generatedProductsRef.current
-          .find((p) => p.productId === productId)
-          ?.views.find((v) => v.viewType === "front");
+        const frontView = viewsRef.current.find((v) => v.viewType === "front");
         if (frontView?.imageUrl && !frontView.error) {
           try {
             referenceFile = dataUrlToFile(frontView.imageUrl, "reference.png");
@@ -173,33 +171,33 @@ export default function Home() {
       }
 
       try {
-        const imageUrl = await fetchView(productId, viewType, referenceFile);
-        setView(productId, viewType, { loading: false, imageUrl, error: undefined });
+        const imageUrl = await fetchView(viewType, referenceFile);
+        setView(viewType, { loading: false, imageUrl, error: undefined });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Network error — please try again";
-        setView(productId, viewType, { loading: false, error: message });
+        setView(viewType, { loading: false, error: message });
       }
     },
     [fetchView, setView]
   );
 
   const downloadImage = useCallback(
-    (imageUrl: string, productId: string, viewType: ViewType) => {
+    (imageUrl: string, viewType: ViewType) => {
       const link = document.createElement("a");
       link.href = imageUrl;
-      link.download = `${brandName.toLowerCase().replace(/\s+/g, "-")}-${productId}-${viewType}.png`;
+      link.download = `${brandName.toLowerCase().replace(/\s+/g, "-") || "brand"}-${design?.id}-${viewType}.png`;
       link.click();
     },
-    [brandName]
+    [brandName, design]
   );
 
   const handleUnlock = useCallback(
     (data: LeadData) => {
-      console.log("Lead captured:", { ...data, brandName, selectedProducts });
+      console.log("Lead captured:", { ...data, brandName, designId: design?.id, colorId: color?.id });
       setUnlocked(true);
       setShowUnlockModal(false);
     },
-    [brandName, selectedProducts]
+    [brandName, design, color]
   );
 
   return (
@@ -207,24 +205,18 @@ export default function Home() {
       {/* Nav */}
       <header className="sticky top-0 z-50 bg-cream/80 backdrop-blur-md border-b border-line/60">
         <div className="max-w-[1200px] mx-auto px-6 h-16 flex items-center justify-between">
-          <Image
-            src="/assets/sourcy-wordmark-color.png"
-            alt="Sourcy"
-            width={100}
-            height={28}
-            className="h-7 w-auto"
-          />
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-xs uppercase tracking-[0.15em] text-dark-brown/50">
-              Brand Builder
-            </span>
-            <a
-              href="/pickleball"
-              className="font-mono text-xs uppercase tracking-[0.15em] text-terracotta hover:text-terracotta-hover transition-colors"
-            >
-              Pickleball &amp; Padel Bags →
-            </a>
-          </div>
+          <Link href="/" className="flex items-center">
+            <Image
+              src="/assets/sourcy-wordmark-color.png"
+              alt="Sourcy"
+              width={100}
+              height={28}
+              className="h-7 w-auto"
+            />
+          </Link>
+          <span className="font-mono text-xs uppercase tracking-[0.15em] text-dark-brown/50">
+            Pickleball &amp; Padel Bag Builder
+          </span>
         </div>
       </header>
 
@@ -233,37 +225,40 @@ export default function Home() {
         {step === 0 && (
           <div className="text-center mb-12">
             <p className="font-mono text-xs uppercase tracking-[0.15em] text-terracotta mb-3">
-              Custom Merchandise
+              Custom Court Bags
             </p>
             <h1 className="font-display text-3xl md:text-[44px] leading-[1.1] text-burgundy mb-4">
-              See your brand on <em className="text-terracotta italic">real products</em>
+              Design your own <em className="text-terracotta italic">pickleball & padel bag</em>
             </h1>
             <p className="text-dark-brown/60 max-w-lg mx-auto text-base md:text-lg">
-              Pick your products, upload your logo, and get production-ready
-              mockups in seconds. Powered by AI, produced by Sourcy.
+              Pick a bag silhouette, choose your colorway, add your logo, and
+              get production-ready mockups in seconds. Powered by AI, produced
+              by Sourcy.
             </p>
           </div>
         )}
 
         {/* Stepper */}
         <div className="mb-10">
-          <Stepper currentStep={step} />
+          <Stepper currentStep={step} steps={STEPS} />
         </div>
 
-        {/* Step 0: Pick Products */}
+        {/* Step 0: Pick Design & Color */}
         {step === 0 && (
           <div className="space-y-8">
             <div>
               <h2 className="font-display text-xl md:text-2xl text-burgundy mb-2">
-                What are you building?
+                Pick a bag & colorway
               </h2>
               <p className="text-sm text-dark-brown/60">
-                Select one or more products for your brand.
+                Choose a base design, then select a color to make it yours.
               </p>
             </div>
-            <ProductPicker
-              selected={selectedProducts}
-              onSelect={setSelectedProducts}
+            <DesignPicker
+              selectedDesignId={selectedDesignId}
+              selectedColorId={selectedColorId}
+              onSelectDesign={setSelectedDesignId}
+              onSelectColor={setSelectedColorId}
             />
             <div className="flex justify-end">
               <button
@@ -301,17 +296,6 @@ export default function Home() {
               logoPreview={logoPreview}
             />
 
-            <div className="border-t border-line pt-8">
-              <ImageUpload
-                image={customImage}
-                imagePreview={customImagePreview}
-                onImageChange={(file, preview) => {
-                  setCustomImage(file);
-                  setCustomImagePreview(preview);
-                }}
-              />
-            </div>
-
             <div className="flex items-center justify-between">
               <button
                 onClick={() => setStep(0)}
@@ -333,10 +317,12 @@ export default function Home() {
         )}
 
         {/* Step 2: Results */}
-        {step === 2 && (
+        {step === 2 && design && color && (
           <div className="space-y-10">
-            <GeneratedResults
-              products={generatedProducts}
+            <BagGeneratedResults
+              designName={design.name}
+              colorName={color.name}
+              views={views}
               brandName={brandName}
               unlocked={unlocked}
               onRegenerate={regenerate}
@@ -362,13 +348,12 @@ export default function Home() {
               <button
                 onClick={() => {
                   setStep(0);
-                  setSelectedProducts([]);
+                  setSelectedDesignId(null);
+                  setSelectedColorId(null);
                   setBrandName("");
                   setLogoFile(null);
                   setLogoPreview(null);
-                  setCustomImage(null);
-                  setCustomImagePreview(null);
-                  setGeneratedProducts([]);
+                  setViews([]);
                   setUnlocked(false);
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-line text-dark-brown text-sm hover:bg-surface transition-all"

@@ -2,16 +2,22 @@
 
 import { Check } from "lucide-react";
 
-const STEPS = [
+const DEFAULT_STEPS = [
   { label: "Products", mono: "01" },
   { label: "Brand", mono: "02" },
   { label: "Preview", mono: "03" },
 ];
 
-export function Stepper({ currentStep }: { currentStep: number }) {
+export function Stepper({
+  currentStep,
+  steps = DEFAULT_STEPS,
+}: {
+  currentStep: number;
+  steps?: { label: string; mono: string }[];
+}) {
   return (
     <div className="flex items-center justify-center gap-0">
-      {STEPS.map((step, i) => {
+      {steps.map((step, i) => {
         const isCompleted = i < currentStep;
         const isCurrent = i === currentStep;
 
