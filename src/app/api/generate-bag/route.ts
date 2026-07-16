@@ -63,7 +63,7 @@ async function generateFromReference(
   if (viewType === "logo") {
     instruction = `This is a product photograph of a pickleball/padel bag. Generate an extreme close-up macro photo zoomed tightly into the logo and branding area only, at ${design.logoPlacement}. Reproduce the EXACT same logo design, colors, typography, and style shown in the reference image — do not alter or reinterpret the logo. Show fine surface detail (embroidery stitching or printed texture). Maintain consistent lighting, bag color, and material. Professional macro product photography.`;
   } else {
-    instruction = `This is the FRONT view of a ${design.name}. Generate the BACK view of this exact same bag — same color, same material, same lighting, same clean background, same photography style. ${design.backDescription} Do not add any logos or branding to the back.`;
+    instruction = `This is the FRONT view of a ${design.name}. Generate the BACK view of this exact same bag as a FULL PRODUCT SHOT: frame the ENTIRE bag from top to bottom so its complete silhouette — straps, handles, and full outline — is visible inside the frame with clean background space around it. This must be a wide, full-body product photo at the same distance/zoom level as the reference image, NOT a close-up or macro detail shot of the fabric or hardware. Same color, same material, same lighting, same clean background, same photography style as the reference. ${design.backDescription} Do not add any logos or branding to the back.`;
   }
 
   const parts: Array<
@@ -96,7 +96,7 @@ async function generateFront(
     const brandDesc = brandName ? `the brand "${brandName}"` : "the provided brand";
 
     parts.push({
-      text: `Generate a photorealistic product mockup of ${baseDescription}. Incorporate ${brandDesc} logo naturally as ${design.logoPlacement}. Make it look like a real branded product photo, production-ready quality, photorealistic and premium. Front three-quarter view, centered composition, clean white/marble background, premium catalog quality, warm natural lighting, high-end commercial photography style.`,
+      text: `Generate a photorealistic FULL PRODUCT SHOT of ${baseDescription}. Frame the ENTIRE bag from top to bottom so its complete silhouette — straps, handles, all pockets, and full outline — is clearly visible inside the frame with clean background space around it. This is a wide, full-body catalog product photo, NOT a close-up or macro detail shot of fabric texture or hardware. Incorporate ${brandDesc} logo naturally as ${design.logoPlacement} — the logo should be small relative to the whole bag, not the main subject of the frame. Make it look like a real branded product photo, production-ready quality, photorealistic and premium. Three-quarter view, centered composition, clean white/marble background, premium catalog quality, warm natural lighting, high-end commercial e-commerce photography style, entire product visible with margin on all sides.`,
     });
     parts.push({ text: "Here is the brand logo to place on the bag:" });
     parts.push({ inlineData: { mimeType: logoFile.type, data: logoBase64 } });
@@ -105,7 +105,7 @@ async function generateFront(
       ? ` The brand name "${brandName}" should appear as ${design.logoPlacement}, small and subtly embroidered/printed, clearly readable.`
       : "";
     parts.push({
-      text: `Generate a photorealistic product mockup of ${baseDescription}.${brandLine} Front three-quarter view, centered composition, clean white/marble background, premium catalog quality, warm natural lighting, high-end commercial photography style.`,
+      text: `Generate a photorealistic FULL PRODUCT SHOT of ${baseDescription}. Frame the ENTIRE bag from top to bottom so its complete silhouette — straps, handles, all pockets, and full outline — is clearly visible inside the frame with clean background space around it. This is a wide, full-body catalog product photo, NOT a close-up or macro detail shot of fabric texture or hardware.${brandLine} Three-quarter view, centered composition, clean white/marble background, premium catalog quality, warm natural lighting, high-end commercial e-commerce photography style, entire product visible with margin on all sides.`,
     });
   }
 
