@@ -1,0 +1,141 @@
+"use client";
+
+import { Download, RefreshCw, Loader2, ExternalLink } from "lucide-react";
+
+export type ViewType = "logo" | "front" | "back";
+
+export type ImageView = {
+  viewType: ViewType;
+  label: string;
+  imageUrl: string;
+  loading: boolean;
+  error?: string;
+};
+
+export function BagGeneratedResults({
+  designName,
+  colorName,
+  views,
+  brandName,
+  onRegenerate,
+  onDownload,
+  sourcingUrl,
+}: {
+  designName: string;
+  colorName: string;
+  views: ImageView[];
+  brandName: string;
+  onRegenerate: (viewType: ViewType) => void;
+  onDownload: (imageUrl: string, viewType: ViewType) => void;
+  sourcingUrl: string;
+}) {
+  return (
+    <div className="space-y-8">
+      <div className="text-center">
+        <p className="font-mono text-xs uppercase tracking-[0.15em] text-terracotta mb-2">
+          Your Bag, Visualized
+        </p>
+        <h2 className="font-display text-2xl md:text-3xl text-burgundy">
+          {brandName ? `${brandName} ${designName}` : designName}
+        </h2>
+        <p className="text-sm text-dark-brown/50 mt-1">{colorName}</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {views.map((view) => {
+          // The back view is a static pre-generated asset — nothing to regenerate.
+          const canRegenerate = view.viewType !== "back";
+
+          return (
+            <div
+              key={view.viewType}
+              className="rounded-lg border border-line bg-white overflow-hidden"
+            >
+              <div className="aspect-square relative bg-surface flex items-center justify-center overflow-hidden">
+                {view.loading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-5 h-5 text-terracotta animate-spin" />
+                    <p className="text-[10px] text-dark-brown/60">
+                      Generating...
+                    </p>
+                  </div>
+                ) : view.error ? (
+                  <div className="flex flex-col items-center gap-2 px-3 text-center">
+                    <p className="text-[10px] text-terracotta leading-snug">
+                      {view.error}
+                    </p>
+                    <button
+                      onClick={() => onRegenerate(view.viewType)}
+                      className="text-[10px] text-dark-brown/60 hover:text-terracotta flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      Retry
+                    </button>
+                  </div>
+                ) : (
+                  <img
+                    src={view.imageUrl}
+                    alt={`${brandName} ${designName} ${view.label}`}
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
+                )}
+              </div>
+              <div className="px-2.5 py-2 flex items-center justify-between">
+                <p className="text-[10px] font-mono uppercase tracking-[0.1em] text-dark-brown/50">
+                  {view.label}
+                </p>
+                {!view.loading && !view.error && view.imageUrl && (
+                  <div className="flex items-center gap-1">
+                    {canRegenerate && (
+                      <button
+                        onClick={() => onRegenerate(view.viewType)}
+                        className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
+                        title="Regenerate"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5 text-dark-brown" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onDownload(view.imageUrl, view.viewType)}
+                      className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
+                      title="Download"
+                    >
+                      <Download className="w-2.5 h-2.5 text-dark-brown" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Sourcy free sample CTA */}
+      <div className="rounded-xl border border-line bg-surface overflow-hidden">
+        <div className="px-6 py-5 flex flex-col sm:flex-row items-center gap-4">
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-terracotta mb-1">
+              Ready to make it real?
+            </p>
+            <p className="font-display text-lg text-burgundy leading-snug">
+              Get a free sample from Sourcy
+            </p>
+            <p className="text-xs text-dark-brown/60 mt-1">
+              We&apos;ll source and ship you a physical branded sample — no commitment needed.
+            </p>
+          </div>
+          <a
+            href={sourcingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-burgundy text-cream font-medium text-sm hover:bg-burgundy/90 active:scale-[0.98] transition-all whitespace-nowrap"
+          >
+            Get Free Sample
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}

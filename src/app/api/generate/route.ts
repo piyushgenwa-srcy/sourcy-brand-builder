@@ -1,5 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { PRODUCTS } from "@/lib/products";
+import { normalizeImageToPng } from "@/lib/normalize-image";
+import { cleanGeminiError } from "@/lib/gemini-error";
 
 export const maxDuration = 60;
 
@@ -55,8 +57,7 @@ export async function POST(request: Request) {
       return await generateWithImagen(ai, product, brandName, viewType);
     }
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "Generation failed";
+    const message = cleanGeminiError(error);
     console.error("Generation error:", message);
     return Response.json({ error: message }, { status: 500 });
   }
@@ -155,20 +156,18 @@ async function generateWithGeminiImage(
   }
 
   if (customImage) {
-    const imageBytes = await customImage.arrayBuffer();
-    const base64 = Buffer.from(imageBytes).toString("base64");
+    const image = await normalizeImageToPng(customImage);
     const brandDesc = brandName ? `the brand "${brandName}"` : "the provided brand";
 
     parts.push({
       text: `You are a professional product mockup designer. Take this product image and add ${brandDesc} logo/branding onto the front naturally — placed where it would appear on this type of product (centered chest for shirts/hoodies, front panel for caps, side for bottles, cover for notebooks). Make it look like a real branded product photo, production-ready quality, photorealistic and premium.${viewNote} Generate the edited image.`,
     });
-    parts.push({ inlineData: { mimeType: customImage.type, data: base64 } });
+    parts.push({ inlineData: image });
 
     if (logoFile) {
-      const logoBytes = await logoFile.arrayBuffer();
-      const logoBase64 = Buffer.from(logoBytes).toString("base64");
+      const logo = await normalizeImageToPng(logoFile);
       parts.push({ text: "Here is the brand logo to place on the product:" });
-      parts.push({ inlineData: { mimeType: logoFile.type, data: logoBase64 } });
+      parts.push({ inlineData: logo });
     }
   } else {
     const brandLine = brandName ? ` The brand name is "${brandName}".` : "";
@@ -177,10 +176,9 @@ async function generateWithGeminiImage(
     });
 
     if (logoFile) {
-      const logoBytes = await logoFile.arrayBuffer();
-      const logoBase64 = Buffer.from(logoBytes).toString("base64");
+      const logo = await normalizeImageToPng(logoFile);
       parts.push({ text: "Incorporate this brand logo into the product design:" });
-      parts.push({ inlineData: { mimeType: logoFile.type, data: logoBase64 } });
+      parts.push({ inlineData: logo });
     }
   }
 
