@@ -15,6 +15,9 @@ export type ImageView = {
 export function BagGeneratedResults({
   designName,
   colorName,
+  materialName,
+  exwPrice,
+  moq,
   views,
   brandName,
   onRegenerate,
@@ -23,6 +26,9 @@ export function BagGeneratedResults({
 }: {
   designName: string;
   colorName: string;
+  materialName: string;
+  exwPrice: number;
+  moq: number;
   views: ImageView[];
   brandName: string;
   onRegenerate: (viewType: ViewType) => void;
@@ -38,14 +44,16 @@ export function BagGeneratedResults({
         <h2 className="font-display text-2xl md:text-3xl text-burgundy">
           {brandName ? `${brandName} ${designName}` : designName}
         </h2>
-        <p className="text-sm text-dark-brown/50 mt-1">{colorName}</p>
+        <p className="text-sm text-dark-brown/50 mt-1">
+          {colorName} · {materialName}
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-dark-brown/40 mt-1">
+          EXW ${exwPrice.toFixed(2)} · MOQ {moq}
+        </p>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         {views.map((view) => {
-          // The back view is a static pre-generated asset — nothing to regenerate.
-          const canRegenerate = view.viewType !== "back";
-
           return (
             <div
               key={view.viewType}
@@ -87,15 +95,13 @@ export function BagGeneratedResults({
                 </p>
                 {!view.loading && !view.error && view.imageUrl && (
                   <div className="flex items-center gap-1">
-                    {canRegenerate && (
-                      <button
-                        onClick={() => onRegenerate(view.viewType)}
-                        className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
-                        title="Regenerate"
-                      >
-                        <RefreshCw className="w-2.5 h-2.5 text-dark-brown" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => onRegenerate(view.viewType)}
+                      className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
+                      title="Regenerate"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5 text-dark-brown" />
+                    </button>
                     <button
                       onClick={() => onDownload(view.imageUrl, view.viewType)}
                       className="w-5 h-5 rounded-full bg-surface hover:bg-line flex items-center justify-center transition-colors"
