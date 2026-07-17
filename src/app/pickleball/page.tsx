@@ -10,7 +10,7 @@ import {
   type ViewType,
 } from "@/components/pickleball/bag-generated-results";
 import { Stepper } from "@/components/stepper";
-import { BAG_DESIGNS, bagImagePath } from "@/lib/pickleball-products";
+import { BAG_DESIGNS } from "@/lib/pickleball-products";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -39,6 +39,7 @@ export default function PickleballBuilder() {
   const [step, setStep] = useState(0);
   const [selectedDesignId, setSelectedDesignId] = useState<string | null>(null);
   const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
   const [brandName, setBrandName] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -58,25 +59,31 @@ export default function PickleballBuilder() {
     () => design?.colors.find((c) => c.id === selectedColorId) ?? null,
     [design, selectedColorId]
   );
+  const material = useMemo(
+    () => design?.materials.find((m) => m.id === selectedMaterialId) ?? null,
+    [design, selectedMaterialId]
+  );
 
-  const canProceedStep0 = !!design && !!color;
+  const canProceedStep0 = !!design && !!color && !!material;
   const canProceedStep1 = brandName.trim().length > 0 || logoFile !== null;
 
   const sourcingUrl = useMemo(() => {
     const designName = design?.name ?? "pickleball bag";
-    const colorName = color ? ` (${color.name})` : "";
+    const details = [color?.name, material?.name].filter(Boolean).join(", ");
+    const suffix = details ? ` (${details})` : "";
     const query = brandName.trim()
-      ? `Custom ${brandName} ${designName}${colorName}`
-      : `Custom branded ${designName}${colorName}`;
+      ? `Custom ${brandName} ${designName}${suffix}`
+      : `Custom branded ${designName}${suffix}`;
     return `https://www.sourcy.ai/onboard?q=${encodeURIComponent(query)}`;
-  }, [design, color, brandName]);
+  }, [design, color, material, brandName]);
 
   const fetchView = useCallback(
     async (viewType: ViewType, referenceImage?: File | null): Promise<string> => {
-      if (!design || !color) throw new Error("No design selected");
+      if (!design || !color || !material) throw new Error("No design selected");
       const formData = new FormData();
       formData.append("designId", design.id);
       formData.append("colorId", color.id);
+      formData.append("materialId", material.id);
       formData.append("brandName", brandName);
       formData.append("viewType", viewType);
       if (logoFile) formData.append("logo", logoFile);
@@ -87,7 +94,7 @@ export default function PickleballBuilder() {
       if (data.error) throw new Error(data.error);
       return data.imageUrl as string;
     },
-    [design, color, brandName, logoFile]
+    [design, color, material, brandName, logoFile]
   );
 
   const setView = useCallback(
@@ -100,7 +107,7 @@ export default function PickleballBuilder() {
   );
 
   const generateImages = useCallback(async () => {
-    if (!design || !color) return;
+    if (!design || !color || !material) return;
     setStep(2);
 
     setViews(
@@ -108,17 +115,11 @@ export default function PickleballBuilder() {
         viewType,
         label,
         imageUrl: "",
-        loading: viewType !== "back",
+        loading: true,
       }))
     );
 
-    // The back view is never branded — serve the pre-generated static asset instantly.
-    setView("back", {
-      loading: false,
-      imageUrl: bagImagePath(design.id, color.id, "back"),
-    });
-
-    // Front composites the logo/brand name onto the pre-generated base shot.
+    // Front restyles the real reference photo into the chosen color/material + logo.
     let frontImageUrl: string | null = null;
     try {
       frontImageUrl = await fetchView("front");
@@ -128,33 +129,40 @@ export default function PickleballBuilder() {
       setView("front", { loading: false, error: message });
     }
 
-    // Logo close-up derives from the branded front for visual consistency.
+    // Logo and back both derive from the restyled front as a reference — logo for
+    // consistency, back only as a fallback for designs with no real back photo
+    // (the API uses the real back photo directly when one exists).
+    let referenceFile: File | null = null;
     if (frontImageUrl) {
       try {
-        const referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
-        const logoImageUrl = await fetchView("logo", referenceFile);
-        setView("logo", { loading: false, imageUrl: logoImageUrl });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Network error — please try again";
-        setView("logo", { loading: false, error: message });
+        referenceFile = dataUrlToFile(frontImageUrl, "reference.png");
+      } catch {
+        // reference unavailable — generate independently
       }
-    } else {
-      setView("logo", { loading: false, error: "Front view failed — retry it first" });
     }
-  }, [design, color, fetchView, setView]);
+
+    await Promise.all(
+      (["logo", "back"] as ViewType[]).map(async (viewType) => {
+        try {
+          const imageUrl = await fetchView(viewType, referenceFile);
+          setView(viewType, { loading: false, imageUrl });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Network error — please try again";
+          setView(viewType, { loading: false, error: message });
+        }
+      })
+    );
+  }, [design, color, material, fetchView, setView]);
 
   const regenerate = useCallback(
     async (viewType: ViewType) => {
-      if (!design || !color) return;
-
-      // The back view is static — nothing to regenerate against.
-      if (viewType === "back") return;
+      if (!design || !color || !material) return;
 
       setView(viewType, { loading: true, error: undefined });
 
-      // Logo derives from the current front image as a reference for consistency
+      // Logo/back derive from the current front image as a reference for consistency
       let referenceFile: File | null = null;
-      if (viewType === "logo") {
+      if (viewType !== "front") {
         const frontView = viewsRef.current.find((v) => v.viewType === "front");
         if (frontView?.imageUrl && !frontView.error) {
           try {
@@ -173,7 +181,7 @@ export default function PickleballBuilder() {
         setView(viewType, { loading: false, error: message });
       }
     },
-    [design, color, fetchView, setView]
+    [design, color, material, fetchView, setView]
   );
 
   const downloadImage = useCallback(
@@ -217,9 +225,9 @@ export default function PickleballBuilder() {
               Design your own <em className="text-terracotta italic">pickleball & padel bag</em>
             </h1>
             <p className="text-dark-brown/60 max-w-lg mx-auto text-base md:text-lg">
-              Pick a bag silhouette, choose your colorway, add your logo, and
-              get production-ready mockups in seconds. Powered by AI, produced
-              by Sourcy.
+              Pick a real, sourceable bag, choose your color and material, add
+              your logo, and get production-ready mockups in seconds. Powered
+              by AI, produced by Sourcy.
             </p>
           </div>
         )}
@@ -234,17 +242,19 @@ export default function PickleballBuilder() {
           <div className="space-y-8">
             <div>
               <h2 className="font-display text-xl md:text-2xl text-burgundy mb-2">
-                Pick a bag & colorway
+                Pick a bag, colorway & material
               </h2>
               <p className="text-sm text-dark-brown/60">
-                Choose a base design, then select a color to make it yours.
+                Choose a real base design, then make it yours.
               </p>
             </div>
             <DesignPicker
               selectedDesignId={selectedDesignId}
               selectedColorId={selectedColorId}
+              selectedMaterialId={selectedMaterialId}
               onSelectDesign={setSelectedDesignId}
               onSelectColor={setSelectedColorId}
+              onSelectMaterial={setSelectedMaterialId}
             />
             <div className="flex justify-end">
               <button
@@ -303,11 +313,14 @@ export default function PickleballBuilder() {
         )}
 
         {/* Step 2: Results */}
-        {step === 2 && design && color && (
+        {step === 2 && design && color && material && (
           <div className="space-y-10">
             <BagGeneratedResults
               designName={design.name}
               colorName={color.name}
+              materialName={material.name}
+              exwPrice={design.exwPrice}
+              moq={design.moq}
               views={views}
               brandName={brandName}
               onRegenerate={regenerate}
@@ -328,6 +341,7 @@ export default function PickleballBuilder() {
                   setStep(0);
                   setSelectedDesignId(null);
                   setSelectedColorId(null);
+                  setSelectedMaterialId(null);
                   setBrandName("");
                   setLogoFile(null);
                   setLogoPreview(null);
